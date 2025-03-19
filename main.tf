@@ -47,7 +47,10 @@ module "eks" {
     "karpenter.sh/discovery" = local.name
   })
 
-  tags = local.tags
+    tags = merge(local.tags, {
+    "karpenter.sh/discovery" = local.name
+  })
+
 }
 
 
@@ -74,11 +77,43 @@ module "karpenter" {
   tags = local.tags
 }
 
-module "karpenter_disabled" {
-  source  = "terraform-aws-modules/eks/aws//modules/karpenter"
-  version = "20.34.0"
+resource "aws_iam_policy" "karpenter_policy" {
+  name_prefix = "karpenter-permissions-"
+  description = "IAM policy for Karpenter"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeVpcs",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeSecurityGroups",
+          "ec2:CreateFleet",
+          "ec2:RunInstances",
+          "ec2:TerminateInstances",
+          "ec2:DescribeInstanceTypes",
+          "ec2:DescribeInstances",
+          "ec2:DescribeImages",
+          "ec2:CreateTags",
+          "ec2:DeleteTags",
+          "ec2:AuthorizeSecurityGroupIngress",
+          "ec2:AuthorizeSecurityGroupEgress",
+          "ec2:RevokeSecurityGroupIngress",
+          "ec2:RevokeSecurityGroupEgress",
+          "iam:PassRole"
+        ]
+        Resource = "*"
+      },
+    ]
+  })
+}
 
-  create = false
+resource "aws_iam_role_policy_attachment" "karpenter_policy_attachment" {
+  role       = module.eks.cluster_name 
+  policy_arn = aws_iam_policy.karpenter_policy.arn
+
+  depends_on = [module.karpenter]
 }
 
 # Karpenter Helm chart & manifests
@@ -103,7 +138,7 @@ resource "helm_release" "karpenter" {
       clusterEndpoint: ${module.eks.cluster_endpoint}
       interruptionQueue: ${module.karpenter.queue_name}
     webhook:
-      enabled: false
+      enabled: true
     EOT
   ]
 }
